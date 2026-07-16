@@ -1,0 +1,52 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "molmoact2-so101-sim"
+version = "1.0.0"
+description = "Run, fine-tune, and evaluate MolmoAct2 (LeRobot) on a simulated SO-101 arm: calibration bridge, scripted demo collector, training config, eval harness."
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.12"
+authors = [{ name = "Ata Ghofrani" }]
+keywords = ["robotics", "vla", "so-101", "molmoact2", "lerobot", "mujoco", "sim"]
+classifiers = [
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3.12",
+  "Intended Audience :: Science/Research",
+]
+dependencies = [
+  "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+# The core package (calibration bridge + tests) runs on numpy alone.
+# Collection and evaluation need the sim and the model stacks:
+sim = ["so101-nexus", "mujoco>=3.10", "imageio[ffmpeg]>=2.31", "pillow>=10", "pandas>=2.0", "pyarrow>=14"]
+molmoact2 = ["lerobot[molmoact2]>=0.6.0", "torch>=2.4"]
+# pandas/pyarrow are needed by the release smoke test (it exercises the dataset relabel),
+# so they belong in the CI/dev install even though the core package runs on numpy alone.
+dev = ["pytest>=8.0", "ruff>=0.6", "pandas>=2.0", "pyarrow>=14"]
+
+[project.urls]
+Homepage = "https://github.com/ataghof/molmoact2-so101-sim"
+"Project page" = "https://ataghof.github.io/molmoact2-so101-sim/"
+Weights = "https://huggingface.co/ataghof/molmoact2-so101nexus-lora-champion"
+Dataset = "https://huggingface.co/datasets/ataghof/so101nexus-cube500-binary"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/molmoact2_so101_sim"]
+
+# Ship the bundled table texture inside the wheel so realism.py can locate it via package
+# resources in a non-editable install.
+[tool.hatch.build.targets.wheel.force-include]
+"src/molmoact2_so101_sim/assets/wood_table.png" = "molmoact2_so101_sim/assets/wood_table.png"
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How we taught LeRobot's zero-shot VLA to run an SO-101 arm in sim</title>
+<meta name="description" content="We fine-tuned MolmoAct2, the open 5B vision-language-action model shipped in LeRobot, to pick and place on a simulated SO-101 arm. From failing zero-shot to grasping on most held-out runs in five days, open-sourced.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@700;800&family=Familjen+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#16202e; --slate:#5a6675; --accent:#3a4fd6; --teal:#1e96b0;
+    --paper:#f4f7fb; --card:#edf1f6; --card2:#e7ecf3; --rule:rgba(22,32,46,.13);
+    --ok:#0f8a57; --bad:#cf4433;
+    --sans:"Familjen Grotesk",system-ui,-apple-system,sans-serif;
+    --display:"Familjen Grotesk",system-ui,-apple-system,sans-serif;
+    --num:"Archivo","Familjen Grotesk",system-ui,sans-serif;
+    --mono:"JetBrains Mono",ui-monospace,"SF Mono",Menlo,monospace;
+    --dot:rgba(22,32,46,.05);
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;color:var(--ink);font-family:var(--sans);
+       line-height:1.6;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+       font-feature-settings:"ss01","cv01","cv11";overflow-x:hidden;
+       background-color:var(--paper);
+       background-image:
+         radial-gradient(120% 620px at 15% 0, color-mix(in srgb,var(--accent) 9%,transparent), transparent 60%),
+         radial-gradient(var(--dot) .5px, transparent 1.5px);
+       background-size:100% 620px, 22px 22px;
+       background-repeat:no-repeat, repeat;}
+  .wrap{max-width:1000px;margin:0 auto;padding:0 24px 96px;position:relative}
+
+  .eyebrow{font-family:var(--sans);font-size:11.5px;font-weight:600;letter-spacing:.16em;
+       text-transform:uppercase;color:var(--slate)}
+
+  header{padding:76px 0 40px;border-bottom:1px solid var(--rule)}
+  h1{font-family:var(--display);font-size:clamp(32px,5.6vw,58px);line-height:1.07;
+     margin:0 0 .35em;font-weight:700;letter-spacing:-.022em;max-width:20ch}
+  .sub{font-size:clamp(16.5px,2.2vw,20px);color:var(--slate);max-width:46em;font-weight:400}
+  .sub b{color:var(--ink);font-weight:600}
+  .statrow{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin:40px 0 4px;max-width:640px}
+  .stat{background:var(--card);border:1px solid var(--rule);border-radius:14px;padding:18px 18px 16px}
+  .stat b{display:block;font-family:var(--num);font-weight:800;font-size:clamp(26px,4.2vw,40px);
+     letter-spacing:-.03em;line-height:1;color:var(--ink)}
+  .stat.i b{color:var(--accent)}
+  .stat>span{display:block;margin-top:10px;font-size:11px;font-weight:600;letter-spacing:.13em;
+     text-transform:uppercase;color:var(--slate)}
+  .stat small{display:block;margin-top:7px;font-size:12.5px;line-height:1.45;color:var(--slate);font-weight:400}
+
+  h2{font-family:var(--display);font-weight:700;font-size:clamp(23px,3.4vw,36px);letter-spacing:-.025em;
+     color:var(--ink);margin:76px 0 20px;line-height:1.1}
+  p{max-width:70ch}
+  p b{font-weight:600}
+
+  figure{margin:0 0 10px}
+  video,img.fig{width:100%;display:block;background:#0b0f16;border:1px solid var(--rule);border-radius:12px}
+  figcaption{font-size:13.5px;color:var(--slate);line-height:1.5;padding:11px 2px 0}
+  figcaption b{color:var(--ink);font-weight:600}
+  .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:26px}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  @media (max-width:700px){ .grid3{grid-template-columns:1fr} }
+
+  .beats{counter-reset:b;padding:0;margin:0;list-style:none}
+  .beats li{counter-increment:b;padding:16px 0 16px 52px;position:relative;border-bottom:1px solid var(--rule);max-width:75ch}
+  .beats li:last-child{border-bottom:0}
+  .beats li::before{content:counter(b,decimal-leading-zero);position:absolute;left:0;top:17px;
+     font-family:var(--sans);font-weight:700;color:var(--accent);font-size:13px;letter-spacing:.04em}
+  .beats li b{color:var(--ink);font-weight:600}
+
+  .overx{overflow-x:auto;border:1px solid var(--rule);border-radius:12px}
+  table{width:100%;border-collapse:collapse;font-size:13.5px;background:var(--card);min-width:640px}
+  th,td{padding:11px 14px;text-align:left;border-bottom:1px solid var(--rule);vertical-align:top}
+  td+td,th+th{border-left:1px solid var(--rule)}
+  tr:last-child td{border-bottom:0}
+  th{background:var(--card2);font-size:10.5px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--slate)}
+  td{color:var(--slate)} td:first-child{color:var(--ink);font-weight:500}
+  td.num{font-family:var(--sans);font-weight:700;color:var(--accent);white-space:nowrap}
+  td a{color:var(--accent);text-decoration:none;border-bottom:1px dotted color-mix(in srgb,var(--accent) 45%,transparent)}
+  td a:hover{border-bottom-style:solid}
+  tr[id]{scroll-margin-top:28px}
+  tr:target td{background:color-mix(in srgb,var(--accent) 11%,var(--card))}
+  .mono{font-family:var(--mono);font-size:.94em}
+  .vtag{font-family:var(--mono);font-size:10.5px;color:var(--slate);white-space:nowrap}
+  .ok{color:var(--ok);font-weight:600}.bad{color:var(--bad);font-weight:600}.mid{color:var(--slate);font-weight:600}
+  tr.hi td{background:color-mix(in srgb,var(--accent) 7%,var(--card))}
+  tr.hi td:first-child{color:var(--accent);font-weight:700}
+  tr.tgt td{background:color-mix(in srgb,var(--teal) 8%,var(--card));color:var(--ink)}
+  tr.tgt td:first-child{color:var(--teal);font-weight:700}
+
+  p a{color:var(--accent);text-underline-offset:3px;text-decoration-color:color-mix(in srgb,var(--accent) 45%,transparent)}
+  .links{display:flex;flex-wrap:wrap;gap:12px;margin-top:20px;align-items:center}
+  .btn{font-family:var(--sans);font-size:14px;font-weight:600;text-decoration:none;border-radius:100px;
+     padding:12px 22px;border:1px solid var(--rule);color:var(--ink);background:transparent;
+     transition:transform .15s ease,background .15s ease,border-color .15s ease,color .15s ease;
+     display:inline-flex;align-items:center;gap:.5em;white-space:nowrap}
+  .btn:hover{transform:translateY(-1px);border-color:color-mix(in srgb,var(--ink) 30%,transparent)}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn.primary:hover{background:color-mix(in srgb,var(--accent) 88%,#000);border-color:color-mix(in srgb,var(--accent) 88%,#000)}
+  .btn .ar{transition:transform .15s ease}
+  .btn:hover .ar{transform:translateX(3px)}
+  .fine{font-size:13.5px;color:var(--slate);margin-top:14px}
+
+  footer{margin-top:80px;padding-top:22px;border-top:1px solid var(--rule);
+     font-size:12.5px;color:var(--slate);display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px}
+  footer .eyebrow{font-size:11px}
+  @media (max-width:560px){ header{padding:56px 0 32px} h2{margin-top:60px} }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>How we taught LeRobot's zero&#8209;shot VLA to run an SO&#8209;101 arm in sim</h1>
+  <p class="sub">MolmoAct2 is Ai2's open 5-billion-parameter vision-language-action model, shipped in LeRobot.
+  Run zero-shot in our MuJoCo simulator of the SO-101, it did not grasp the cube. Five days of fine-tuning
+  later, the shipped model picks up the cube and places it on the blue target on most held-out runs. It is all
+  open-sourced for you to run yourself.</p>
+  <div class="statrow">
+    <div class="stat i"><b>93%</b><span>Grasp rate</span><small>Downloadable <span class="mono">v6</span>, on 30 held-out cube positions. Grasp = cube held in the gripper.</small></div>
+    <div class="stat"><b>9 / 30</b><span>Strict success</span><small>Runs where the cube ends up placed on the target and the arm comes to rest.</small></div>
+  </div>
+</header>
+
+<main>
+
+<h2>What we did, and why.</h2>
+<p><b>The what.</b> MolmoAct2 is an open vision-language-action model from Ai2: a 5B-parameter network that
+looks at camera images, reads an instruction like "pick up the cube," and outputs robot joint angles. It ships
+inside LeRobot, Hugging Face's robotics library, and it targets the SO-101, a low-cost open-source robot arm.
+We put it in a MuJoCo simulator of that arm. Zero-shot, straight out of the box, it did not grasp the cube. So
+we taught it: a scripted expert played the task 500 times in the sim, and we fine-tuned the model on those
+demos with LoRA adapters (low-rank adapters, a few small trainable matrices added to the frozen model so you
+update a tiny fraction of the weights instead of all 5B).</p>
+<p><b>The why.</b> Real-robot data is slow, expensive, and breaks things. We wanted to get everything right in
+the sim before this model ever touches our real SO-101, and to give other people a way to do the same if they
+want.</p>
+
+<h2>Everything we tried.</h2>
+<div class="overx">
+<table>
+  <caption>Every controlled change we tried, in order. Results are for the cube pick-and-place task only.</caption>
+  <thead>
+  <tr><th scope="col">#</th><th scope="col">Change</th><th scope="col">What it is</th><th scope="col">Result</th></tr>
+  </thead>
+  <tbody>
+  <tr id="t1"><td class="num">1</td><td>Photorealism pass</td><td>Wood tabletop, matched camera pose and FOV, better lighting. Testing the "it looks too fake" theory.</td><td class="mid">No change in success. The look wasn't the problem.</td></tr>
+  <tr id="t2"><td class="num">2</td><td>More demos</td><td>Scripted-expert demos with randomized cube placement, scaled 30 to 300 to 500 episodes, recorded as LeRobot datasets.</td><td class="ok">Grasp ~10% to 33% as the count climbed.</td></tr>
+  <tr id="t3"><td class="num">3</td><td>Wrist camera</td><td>Added the arm's own eye-in-hand view alongside the overhead camera.</td><td class="ok">Bundled into the 300-demo model; not measured on its own.</td></tr>
+  <tr id="t4"><td class="num">4</td><td>Noise + retries in demos</td><td>Execute with injected wobble, record the clean actions (DART-style), and keep episodes where the expert misses and recovers.</td><td class="ok">The arm recovers from a missed grab instead of freezing.</td></tr>
+  <tr id="t5"><td class="num">5</td><td>Success-state endings</td><td>Demos end with the cube placed on the target, so "done" is in the training data.</td><td class="ok">The model learns to stop once the cube is placed.</td></tr>
+  <tr id="t6"><td class="num">6</td><td>Slow release</td><td>Open the gripper over ~11 recorded frames instead of one step, so the release is imitable at 33 Hz.</td><td class="ok">The release stops failing halfway through the drop.</td></tr>
+  <tr id="t7"><td class="num">7</td><td>Idle-frame stripping</td><td>Drop frames with no motion, to densify the training signal.</td><td class="bad">Backfired. It deleted the release frames too. Reverted.</td></tr>
+  <tr id="t8"><td class="num">8</td><td>Action chunking</td><td>Predict 10 actions per query and run the chunk open-loop (execute all 10 before asking again), matching the model's LIBERO setup.</td><td class="ok">First successes that repeat across cube positions, not one-off flukes.</td></tr>
+  <tr id="t9"><td class="num">9</td><td>Binary gripper</td><td>Relabel the gripper to two values, open or closed, so the discrete head faces a clean two-class target.</td><td class="ok">Biggest single win. On its own the best observed model (<span class="mono">v6</span>): 93% grasp.</td></tr>
+  <tr id="t10"><td class="num">10</td><td>Delta actions</td><td>Predict joint-angle deltas (a<sub>t</sub> - a<sub>t-1</sub>) instead of absolute targets.</td><td class="bad">Fine inside the full stack, but about -16 pts of grasp when isolated (93% to 77%).</td></tr>
+  <tr id="t11"><td class="num">11</td><td>Full fine-tune</td><td>Retrain all the weights instead of LoRA adapters.</td><td class="bad">40% grasp, no real successes.</td></tr>
+  <tr id="t12"><td class="num">12</td><td>Longer eval episodes</td><td>Give each test run more policy steps instead of cutting it off early.</td><td class="ok">Reported grasp 53% to 77% with the longer budget.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2>The scorecard.</h2>
+<div class="overx">
+<table>
+  <thead>
+  <tr><th scope="col">Model</th><th scope="col">Recipe</th><th scope="col">Grasp</th><th scope="col">Success</th><th scope="col">Loose</th></tr>
+  </thead>
+  <tbody>
+  <tr><td><span class="mono">zero-shot</span></td><td>No fine-tuning.</td><td>0%</td><td>0</td><td>0</td></tr>
+  <tr><td><span class="mono">v1</span></td><td><a href="#t2">Change 2</a> at 30 demos.</td><td>~10% (noisy)</td><td>0</td><td>0</td></tr>
+  <tr><td><span class="mono">v2</span></td><td><a href="#t2">Changes 2-4</a>: 300 demos, wrist camera, noise + retries.</td><td>33%</td><td>0</td><td>0</td></tr>
+  <tr><td><span class="mono">v3</span></td><td><a href="#t2">Changes 2-6</a> and <a href="#t8">8</a>: 500 demos, success endings, slow release, chunking.</td><td>17%</td><td>1</td><td>2</td></tr>
+  <tr><td><span class="mono">v4</span></td><td><a href="#t2">Changes 2-6</a> and <a href="#t8">8-10</a>: everything, delta actions included.</td><td>70-77%</td><td>16/104</td><td>23/104</td></tr>
+  <tr><td><span class="mono">v5</span></td><td>The shipped data, <a href="#t11">full fine-tune</a> instead of LoRA.</td><td>40%</td><td>1 (push-in)</td><td>2</td></tr>
+  <tr class="hi"><td><span class="mono">v6</span></td><td>The recipe minus <a href="#t10">delta actions</a>. The downloadable model.</td><td class="ok">93%</td><td class="ok">9/30 (30%)</td><td class="ok">50%</td></tr>
+  <tr class="tgt"><td>The target <span class="vtag">LIBERO</span></td><td>A sibling MolmoAct2 checkpoint fine-tuned for LIBERO: a different robot and different tasks.</td><td colspan="3"><b>98.4% / 100.0% / 98.0% / 96.6%</b> across the four LIBERO suites (Ai2's published <a href="https://huggingface.co/allenai/MolmoAct2-LIBERO-LeRobot">MolmoAct2-LIBERO</a> results).</td></tr>
+  </tbody>
+</table>
+</div>
+<p class="fine"><b>Grasp</b> = cube in the gripper. <b>Success</b> = placed on the target, arm at rest.
+<b>Loose</b> = cube released within 6 cm of the target, a looser bar than strict success.</p>
+
+<h2>Watch it learn.</h2>
+<div class="grid3">
+  <figure><video src="media/era1_day1.mp4" loop muted playsinline controls preload="metadata"></video>
+  <figcaption><b>1 &middot; Day one, <span class="mono">zero-shot</span>.</b> Never grasps the cube.</figcaption></figure>
+  <figure><video src="media/era2_no_release.mp4" loop muted playsinline controls preload="metadata"></video>
+  <figcaption><b>2 &middot; Mid-project.</b> Grasps and carries, but never lets go. The target stays empty.</figcaption></figure>
+  <figure><video src="media/era3_final.mp4" loop muted playsinline controls preload="metadata"></video>
+  <figcaption><b>3 &middot; Day five, <span class="mono">v4</span>.</b> Picks it up, places it, releases. This seed-5004 run; 77% grasp overall.</figcaption></figure>
+  <figure><video src="media/FIRST_SUCCESS_v5_chunk10_seed5004.mp4" loop muted playsinline controls preload="metadata"></video>
+  <figcaption><b>4 &middot; <span class="mono">v3</span>, first success.</b> 500 demos and 10-step chunks land the project's first true pick-and-place.</figcaption></figure>
+  <figure><video src="media/bingrip_5061.mp4" loop muted playsinline controls preload="metadata"></video>
+  <figcaption><b>5 &middot; <span class="mono">v6</span>.</b> Drop the delta actions and grasp rises to 93%. Places and releases cleanly. The downloadable model.</figcaption></figure>
+  <figure><video src="media/full_5004_contrast.mp4" loop muted playsinline controls preload="metadata"></video>
+  <figcaption><b>6 &middot; <span class="mono">v5</span>.</b> Retrain every weight and its best behavior is to shove the cube into the target and skip the grasp.</figcaption></figure>
+  <figure><img class="fig" src="media/side_by_side_t0.png" alt="Model's-eye view: LIBERO on top, our SO-101 sim on the bottom, both simple low-detail renders.">
+  <figcaption><b>7 &middot; Why it points at the data.</b> LIBERO (top) vs ours (bottom), both simple renders. A sibling MolmoAct2 checkpoint fine-tuned for LIBERO scores ~98% there; our photorealism pass did not move success, so what mattered here was the training data.</figcaption></figure>
+</div>
+
+<h2>What we learned.</h2>
+<ol class="beats">
+  <li><b>On this task, the data mattered more than the graphics.</b> Change 1, prettier renders, did nothing. Change 2, more demos, tripled grasp. A sibling MolmoAct2 checkpoint fine-tuned for LIBERO scores ~98% there, in a sim no more detailed than ours, so the photorealism pass was not the lever here.</li>
+  <li><b>Test changes in isolation.</b> <span class="mono">v4</span> looked like our best model until we removed the delta actions and got <span class="mono">v6</span>: about 16 points of grasp back (93% vs 77%). Testing changes only in combination had hidden that delta actions were hurting.</li>
+  <li><b>LoRA beat the full fine-tune at this data scale.</b> At 500 demos, LoRA adapters scored higher than the full fine-tune. The full model's best behavior was shoving the cube, not grasping it.</li>
+  <li><b>Give the model time to finish.</b> Longer eval episodes raised grasp with the same weights (reported 53% to 77%).</li>
+</ol>
+
+<h2>Run it yourself.</h2>
+<p>We open-sourced the simulator setup, the scripted demo collector, the training config, the eval harness, and
+the shipped model's weights and dataset, so you can run it yourself. One 24&nbsp;GB GPU runs the whole loop.</p>
+<ol class="beats">
+  <li><b>Clone and install.</b> The sim, the collector, and the eval harness are all in it.</li>
+  <li><b>Script your demos.</b> Point the collector at your task. 500 episodes take a few hours on a laptop.</li>
+  <li><b>Fine-tune and score.</b> LoRA fine-tune on a 24&nbsp;GB GPU; training time varies with the card, a few hours on a modest one. The harness scores every run and saves the videos.</li>
+</ol>
+<div class="links">
+  <a class="btn primary" href="https://github.com/ataghof/molmoact2-so101-sim">Code <span class="ar">→</span></a>
+  <a class="btn" href="https://huggingface.co/ataghof/molmoact2-so101nexus-lora-champion">Shipped weights</a>
+  <a class="btn" href="https://huggingface.co/datasets/ataghof/so101nexus-cube500-binary">Dataset</a>
+</div>
+
+<h2>What's next.</h2>
+<ol class="beats">
+  <li><b>Put it on a real SO-101.</b> A fixed camera rig, so the simulator's camera and the real camera match by construction.</li>
+  <li><b>Score real runs with a VLM judge.</b> In sim we read success straight from the physics. A real bench has none. LeRobot 0.6 ships Robometer, a model that watches the video and scores the run, which would let us score real runs the way we score sim ones.</li>
+  <li><b>Push to 5,000 demos.</b> Demos are nearly free in sim. Find out how far scaling the demos takes this task.</li>
+</ol>
+
+<p class="fine">With help from <a href="https://allenai.org/blog/molmoact2">MolmoAct2</a> (Ai2),
+<a href="https://github.com/huggingface/lerobot">LeRobot</a> (Hugging Face),
+<a href="https://github.com/johnsutor/so101-nexus">so101-nexus</a> (John Sutor), and
+<a href="https://github.com/irenegracekp/molmoact2-so101">irenegracekp/molmoact2-so101</a>,
+the real-arm MolmoAct2 x SO-101 reference this sim bridge is built against.</p>
+
+</main>
+
+<footer>
+  <div class="eyebrow">Ata Ghofrani · 2026 · Apache-2.0</div>
+</footer>
+
+</div>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  // Autoplay only when the visitor has not asked for reduced motion; every clip has native
+  // controls, so playback is never forced and can always be paused.
+  const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  document.querySelectorAll('video').forEach(v => {
+    v.muted = true;
+    if (!reduce) {
+      const p = v.play();
+      if (p) p.catch(() => {});
+    }
+  });
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,46 @@
+{
+ "action_space": "Box(-1.0, 1.0, (1, 7), float32)",
+ "obs_space_keys": "['pixels', 'robot_state']",
+ "max_steps": 280,
+ "task_description": "pick up the alphabet soup and place it in the basket",
+ "pixel_values_shape": "(2, 729, 588)",
+ "state_t0": [
+  -0.153,
+  -0.006,
+  0.248,
+  3.141,
+  0.001,
+  -0.089,
+  0.04,
+  -0.04
+ ],
+ "action_dim": 7,
+ "action_min": [
+  -0.305,
+  -0.774,
+  -0.791,
+  -0.028,
+  -0.05,
+  -0.059,
+  -1.0
+ ],
+ "action_max": [
+  0.246,
+  0.048,
+  0.933,
+  0.049,
+  0.083,
+  0.001,
+  1.0
+ ],
+ "action_mean_abs": [
+  0.166,
+  0.325,
+  0.382,
+  0.012,
+  0.02,
+  0.024,
+  0.997
+ ],
+ "n_steps_run": 60
+}
